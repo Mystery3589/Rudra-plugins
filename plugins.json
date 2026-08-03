@@ -1,0 +1,4 @@
+{
+  "_comment": "Official rudra plugin index. Hosted at https://github.com/Mystery3589/rudra-plugins. Each entry maps a short plugin name to its metadata. The 'name' here must match the [plugin] name field in plugin.toml and the directory name rudra-<name>/.",
+  "plugins": {}
+}
