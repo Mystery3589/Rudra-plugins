@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #07090e;
+  color: #f8fafc;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  background-image: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(99, 102, 241, 0.08), transparent 40%);
+}
+
+.theme-tokyo {
+  background-color: #16161e;
+  background-image: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(122, 162, 247, 0.1), transparent 40%);
+}
+
+.theme-cyberpunk {
+  background-color: #05070d;
+  background-image: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(0, 240, 255, 0.12), transparent 40%);
+}
+
+.theme-matrix {
+  background-color: #020502;
+  background-image: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(0, 255, 102, 0.1), transparent 40%);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

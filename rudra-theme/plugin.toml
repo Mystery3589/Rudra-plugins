@@ -1,0 +1,9 @@
+[plugin]
+name        = "rudra-theme"
+version     = "0.1.0"
+description = "Themes & visual styling engine for Rudra — cyberpunk, dracula, catppuccin, nord, matrix, tokyo-night, synthwave & custom theme downloader"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["theme"]

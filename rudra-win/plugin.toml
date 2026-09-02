@@ -1,0 +1,10 @@
+[plugin]
+name        = "rudra-win"
+version     = "1.0.0"
+description = "Windows OS management plugin for Rudra — control processes, services, registry, firewall, startup, updates, disk, network, and more directly from the terminal on Windows"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["win"]
+platform    = "windows"

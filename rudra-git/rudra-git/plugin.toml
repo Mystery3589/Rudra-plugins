@@ -1,0 +1,9 @@
+[plugin]
+name        = "rudra-git"
+version     = "0.1.0"
+description = "Advanced git workflow — status, branches, commits, sync, stash, log, undo, and fun commands"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["git"]

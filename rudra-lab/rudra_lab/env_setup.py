@@ -1,181 +1,157 @@
 """Language-level environment bootstrapping inside a lab.
 
-Sets up the right language toolchain inside the lab directory:
-  Python  → venv
-  Node    → local node_modules / nvm shim
-  Rust    → cargo toolchain override
-  Ruby    → bundler install
-  Go      → GOPATH isolation
+Each setup_* function prepares the source scratch copy (already on the host,
+at ~/.rudra/lab/labs/<name>/src_copy/) so it is ready to run inside nspawn.
+Because the scratch copy is a plain writable directory on the host, bootstrap
+steps (npm install, pip install, etc.) run directly on it — no container
+needed.  The container then gets this already-prepared directory as a plain
+writable --bind mount.
+
+Rules:
+  - NEVER run install scripts (--ignore-scripts for npm, no postinstall hooks).
+    Scripts belong inside the sandboxed container, not on the host.
+  - All writes go into the scratch copy, never into the original source.
+  - bootstrap_env returns a dict of extra env vars to inject into the container.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
 
-from rudra_lab.helpers import LabConfig, ProjectType, capture, run_cmd
+from rudra_lab.helpers import LabConfig, ProjectType, run_cmd
 
 console = Console()
 
 
-def _lab_venv(cfg: LabConfig) -> Path:
-    from rudra_lab.helpers import lab_dir
-    return lab_dir(cfg.name) / "venv"
+def _scratch_src(cfg: LabConfig) -> Optional[Path]:
+    """Return the src_copy path if it exists."""
+    p = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "src_copy"
+    return p if p.exists() else None
 
+
+# ── per-language setup ────────────────────────────────────────────────────────
 
 def setup_python(cfg: LabConfig, source_path: Path) -> dict[str, str]:
-    """Create an isolated venv and install requirements."""
-    venv = _lab_venv(cfg)
-    env_extra: dict[str, str] = {}
-
-    if not venv.exists():
+    venv = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "venv"
+    if not (venv / "bin" / "python").exists():
         python = shutil.which("python3") or "python3"
         run_cmd([python, "-m", "venv", str(venv)], "Creating isolated venv")
 
     pip = str(venv / "bin" / "pip")
-    env_extra["VIRTUAL_ENV"]    = str(venv)
-    env_extra["PATH"]           = f"{venv/'bin'}:{os.environ.get('PATH','')}"
-    env_extra["PYTHONPATH"]     = ""   # clear any host PYTHONPATH
-
-    # Install deps
-    for req_file in ("requirements.txt", "requirements-dev.txt"):
-        rp = source_path / req_file
+    env = {
+        "VIRTUAL_ENV": str(venv),
+        "PATH": f"{venv / 'bin'}:{os.environ.get('PATH', '')}",
+        "PYTHONPATH": "",
+    }
+    for req in ("requirements.txt", "requirements-dev.txt"):
+        rp = source_path / req
         if rp.exists():
-            run_cmd([pip, "install", "-r", str(rp), "--quiet"], f"Installing {req_file}")
-
-    pyproject = source_path / "pyproject.toml"
-    if pyproject.exists():
-        run_cmd([pip, "install", "-e", str(source_path), "--quiet"], "Installing package (editable)")
-
-    return env_extra
+            run_cmd([pip, "install", "-r", str(rp), "--quiet"], f"Installing {req}")
+    if (source_path / "pyproject.toml").exists():
+        run_cmd([pip, "install", "-e", str(source_path), "--quiet"], "Installing package")
+    return env
 
 
 def setup_node(cfg: LabConfig, source_path: Path) -> dict[str, str]:
-    """Isolated node_modules in the lab dir, not system-wide."""
-    from rudra_lab.helpers import lab_dir
-    node_home = lab_dir(cfg.name) / "node"
-    node_home.mkdir(parents=True, exist_ok=True)
+    """Install node_modules into the scratch copy without running any scripts."""
+    if not (source_path / "package.json").exists():
+        return {}
 
-    env_extra: dict[str, str] = {
-        "NPM_CONFIG_PREFIX": str(node_home),
-        "NODE_PATH":         str(node_home / "lib" / "node_modules"),
-        "PATH":              f"{node_home/'bin'}:{os.environ.get('PATH','')}",
-    }
-
-    pkg_json = source_path / "package.json"
-    if pkg_json.exists():
-        npm = shutil.which("npm") or "npm"
-        run_cmd(
-            [npm, "install", "--prefix", str(source_path)],
-            "Installing node_modules",
-            env=env_extra,
-        )
-
-    return env_extra
+    npm = shutil.which("npm") or "npm"
+    run_cmd(
+        [npm, "install", "--prefix", str(source_path), "--ignore-scripts"],
+        "Installing node_modules",
+    )
+    return {}
 
 
 def setup_rust(cfg: LabConfig, source_path: Path) -> dict[str, str]:
-    """Isolated CARGO_HOME and RUSTUP_HOME inside lab dir."""
-    from rudra_lab.helpers import lab_dir
-    cargo_home  = lab_dir(cfg.name) / "cargo"
-    rustup_home = lab_dir(cfg.name) / "rustup"
+    cargo_home = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "cargo"
     cargo_home.mkdir(parents=True, exist_ok=True)
-    rustup_home.mkdir(parents=True, exist_ok=True)
-
-    env_extra: dict[str, str] = {
-        "CARGO_HOME":  str(cargo_home),
-        "RUSTUP_HOME": str(rustup_home),
-        "PATH":        f"{cargo_home/'bin'}:{os.environ.get('PATH','')}",
+    env = {
+        "CARGO_HOME": str(cargo_home),
+        "CARGO_TARGET_DIR": str(cargo_home / "target"),
+        "PATH": f"{cargo_home / 'bin'}:{os.environ.get('PATH', '')}",
     }
-
-    # Ensure the toolchain is fetched
-    if shutil.which("cargo"):
-        cargo_toml = source_path / "Cargo.toml"
-        if cargo_toml.exists():
-            run_cmd(
-                ["cargo", "fetch", "--manifest-path", str(cargo_toml)],
-                "Fetching crates",
-                env=env_extra,
-            )
-
-    return env_extra
+    if shutil.which("cargo") and (source_path / "Cargo.toml").exists():
+        run_cmd(["cargo", "fetch", "--manifest-path", str(source_path / "Cargo.toml")],
+                "Fetching crates", env=env)
+    return env
 
 
 def setup_ruby(cfg: LabConfig, source_path: Path) -> dict[str, str]:
-    from rudra_lab.helpers import lab_dir
-    gem_home = lab_dir(cfg.name) / "gems"
+    gem_home = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "gems"
     gem_home.mkdir(parents=True, exist_ok=True)
-
-    env_extra: dict[str, str] = {
+    env = {
         "GEM_HOME": str(gem_home),
         "GEM_PATH": str(gem_home),
-        "PATH":     f"{gem_home/'bin'}:{os.environ.get('PATH','')}",
+        "BUNDLE_PATH": str(gem_home),
+        "PATH": f"{gem_home / 'bin'}:{os.environ.get('PATH', '')}",
     }
-
-    gemfile = source_path / "Gemfile"
-    if gemfile.exists() and shutil.which("bundle"):
-        run_cmd(
-            ["bundle", "install", "--path", str(gem_home)],
-            "Installing gems",
-            env=env_extra,
-        )
-
-    return env_extra
+    if (source_path / "Gemfile").exists() and shutil.which("bundle"):
+        run_cmd(["bundle", "install", "--path", str(gem_home)], "Installing gems", env=env)
+    return env
 
 
 def setup_go(cfg: LabConfig, source_path: Path) -> dict[str, str]:
-    from rudra_lab.helpers import lab_dir
-    gopath = lab_dir(cfg.name) / "gopath"
+    gopath = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "gopath"
     gopath.mkdir(parents=True, exist_ok=True)
-
-    env_extra: dict[str, str] = {
+    env = {
         "GOPATH": str(gopath),
-        "PATH":   f"{gopath/'bin'}:{os.environ.get('PATH','')}",
+        "GOCACHE": str(gopath / "cache"),
+        "PATH": f"{gopath / 'bin'}:{os.environ.get('PATH', '')}",
     }
+    if shutil.which("go") and (source_path / "go.mod").exists():
+        run_cmd(["go", "mod", "download"], "Downloading Go modules", env={**os.environ, **env})
+    return env
 
-    go_mod = source_path / "go.mod"
-    if go_mod.exists() and shutil.which("go"):
-        run_cmd(
-            ["go", "mod", "download"],
-            "Downloading Go modules",
-            env={**os.environ, **env_extra},
-        )
 
-    return env_extra
+# ── dispatch ──────────────────────────────────────────────────────────────────
+
+_SETUP_FNS = {
+    ProjectType.PYTHON: setup_python,
+    ProjectType.NODE:   setup_node,
+    ProjectType.RUST:   setup_rust,
+    ProjectType.RUBY:   setup_ruby,
+    ProjectType.GO:     setup_go,
+}
 
 
 def bootstrap_env(cfg: LabConfig) -> dict[str, str]:
-    """Auto-detect project type and bootstrap the right language env.
-    Returns a dict of extra env vars to inject into the lab run."""
+    """
+    Prepare the language environment in the lab's src_copy scratch dir.
+    Returns extra env vars to inject into the container.
+    """
     if not cfg.source_path:
         return {}
 
-    source = Path(cfg.source_path)
+    # Bootstrap runs against the scratch copy if it exists, otherwise original.
+    # unshare.py's _prepare_nspawn_src() creates the copy before bootstrap_env
+    # is called for nspawn runs.  For other tiers the original is used.
+    scratch = Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "src_copy"
+    source = scratch if scratch.exists() else Path(cfg.source_path)
+
     if not source.exists():
-        console.print(f"[yellow]Source path '{source}' not found — skipping env bootstrap.[/yellow]")
+        console.print(f"[yellow]Source '{source}' not found — skipping bootstrap.[/yellow]")
         return {}
 
-    ptype = ProjectType(cfg.project_type) if cfg.project_type else ProjectType.UNKNOWN
-    console.print(f"[dim]Bootstrapping {ptype.value} environment...[/dim]")
-
     try:
-        if ptype == ProjectType.PYTHON:
-            return setup_python(cfg, source)
-        elif ptype == ProjectType.NODE:
-            return setup_node(cfg, source)
-        elif ptype == ProjectType.RUST:
-            return setup_rust(cfg, source)
-        elif ptype == ProjectType.RUBY:
-            return setup_ruby(cfg, source)
-        elif ptype == ProjectType.GO:
-            return setup_go(cfg, source)
-        else:
-            return {}
+        ptype = ProjectType(cfg.project_type)
+    except ValueError:
+        ptype = ProjectType.UNKNOWN
+
+    fn = _SETUP_FNS.get(ptype)
+    if fn is None:
+        return {}
+
+    console.print(f"[dim]Bootstrapping {ptype.value} environment...[/dim]")
+    try:
+        return fn(cfg, source)
     except Exception as e:
-        console.print(f"[yellow]Env bootstrap warning: {e}[/yellow]")
+        console.print(f"[yellow]Bootstrap warning: {e}[/yellow]")
         return {}

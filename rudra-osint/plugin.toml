@@ -1,0 +1,9 @@
+[plugin]
+name        = "rudra-osint"
+version     = "0.1.0"
+description = "Multi-tier OSINT & investigation engine — profiling, media/GPS geolocation, relationship mapping, domain intelligence, and reports"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["osint"]

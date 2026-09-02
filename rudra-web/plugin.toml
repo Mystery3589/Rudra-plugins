@@ -1,0 +1,9 @@
+[plugin]
+name        = "rudra-web"
+version     = "0.1.0"
+description = "Modern web dashboard and GUI for Rudra — system monitoring, services, packages, security, lab environments, and OSINT"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["web"]

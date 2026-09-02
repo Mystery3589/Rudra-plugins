@@ -6,13 +6,20 @@ import shutil
 from pathlib import Path
 from typing import Annotated, Optional
 import typer
-import click
 from rich.console import Console
 from rudra_git.helpers import git, run, require_repo
 
-# click.Choice does exactly what the old hand-rolled _Choice class did — use it
-# directly rather than reaching into typer's internals for a click reference.
-_Choice = click.Choice
+
+class _Choice:
+    def __init__(self, choices: list[str]):
+        self.choices = [str(c).lower() for c in choices]
+
+    def __call__(self, val: str) -> str:
+        v = str(val).strip().lower()
+        if v not in self.choices:
+            raise typer.BadParameter(f"'{val}' is not one of: {', '.join(self.choices)}")
+        return v
+
 
 app = typer.Typer()
 console = Console()

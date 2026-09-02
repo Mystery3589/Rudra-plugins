@@ -1,4 +1,75 @@
 {
-  "_comment": "Official rudra plugin index. Hosted at https://github.com/Mystery3589/rudra-plugins. Each entry maps a short plugin name to its metadata. The 'name' here must match the [plugin] name field in plugin.toml and the directory name rudra-<name>/.",
-  "plugins": {}
+  "_comment": "Official rudra plugin index. Hosted at https://github.com/Mystery3589/rudra-plugins.",
+  "plugins": {
+    "git": {
+      "name": "rudra-git",
+      "version": "0.1.0",
+      "description": "Advanced git workflow — status, branches, commits, sync, stash, log, undo, and fun commands",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["git"]
+    },
+    "lab": {
+      "name": "rudra-lab",
+      "version": "0.1.0",
+      "description": "Disposable isolated lab environments — sandbox anything, safely run unknown code, auto-cleanup",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["lab"]
+    },
+    "osint": {
+      "name": "rudra-osint",
+      "version": "0.1.0",
+      "description": "Multi-tier OSINT & investigation engine — profiling, media/GPS geolocation, relationship mapping, domain intelligence, and reports",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["osint"]
+    },
+    "theme": {
+      "name": "rudra-theme",
+      "version": "0.1.0",
+      "description": "Themes & visual styling engine for Rudra — cyberpunk, dracula, catppuccin, nord, matrix, tokyo-night, synthwave & custom theme downloader",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["theme"]
+    },
+    "vault": {
+      "name": "rudra-vault",
+      "version": "0.1.0",
+      "description": "Secure encrypted Safe & Vault for passwords, API keys, documents, notes, photos, and videos",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["vault"]
+    },
+    "web": {
+      "name": "rudra-web",
+      "version": "0.1.0",
+      "description": "Modern web dashboard and GUI for Rudra — system monitoring, services, packages, security, lab environments, and OSINT",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["web"]
+    },
+    "win": {
+      "name": "rudra-win",
+      "version": "1.0.0",
+      "description": "Windows OS management plugin for Rudra — control processes, services, registry, firewall, startup, updates, disk, network, and more directly from the terminal on Windows",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["win"]
+    }
+  }
 }

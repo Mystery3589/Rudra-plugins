@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -19,22 +18,15 @@ console = Console()
 # ── unshare ───────────────────────────────────────────────────────────────────
 
 def _unshare_prefix(cfg: LabConfig) -> list[str]:
-    """Build an `unshare` command prefix for namespace isolation."""
-    args = ["unshare"]
-    args += ["--user"]       # user namespace (no root needed)
-    args += ["--pid"]        # separate PID namespace
-    args += ["--mount"]      # separate mount namespace
-    args += ["--fork"]       # needed for --pid
+    args = ["unshare", "--user", "--pid", "--mount", "--fork", "--map-root-user"]
     if cfg.network_isolated:
-        args += ["--net"]    # separate network namespace (no internet)
-    args += ["--map-root-user"]  # map current user to root inside
+        args += ["--net"]
     return args
 
 
 def run_in_unshare(cfg: LabConfig, cmd: str, capture_output: bool = False) -> tuple[int, str]:
     prefix = _unshare_prefix(cfg)
     full_cmd = prefix + ["sh", "-c", cmd]
-
     env = {**os.environ, **(cfg.env_vars or {})}
     if capture_output:
         try:
@@ -62,32 +54,22 @@ def shell_in_unshare(cfg: LabConfig) -> int:
 # ── firejail ──────────────────────────────────────────────────────────────────
 
 def _firejail_prefix(cfg: LabConfig) -> list[str]:
-    args = ["firejail"]
-    args += ["--quiet"]
-    args += ["--private"]           # private /home, /tmp
-    args += ["--private-dev"]       # private /dev
-    args += ["--nogroups"]
-    args += ["--nonewprivs"]
-    args += ["--seccomp"]           # seccomp filter
-
+    args = ["firejail", "--quiet", "--private", "--private-dev",
+            "--nogroups", "--nonewprivs", "--seccomp"]
     if cfg.network_isolated:
         args += ["--net=none"]
-
     for m in cfg.readonly_mounts:
         host, _, cont = m.partition(":")
         cont = cont or host
         args += [f"--bind-try={host},{cont}"]
-
     for k, v in (cfg.env_vars or {}).items():
         args += [f"--env={k}={v}"]
-
     return args
 
 
 def run_in_firejail(cfg: LabConfig, cmd: str, capture_output: bool = False) -> tuple[int, str]:
     prefix = _firejail_prefix(cfg)
     full_cmd = prefix + ["sh", "-c", cmd]
-
     if capture_output:
         try:
             r = subprocess.run(full_cmd, capture_output=True, text=True, timeout=300)
@@ -114,67 +96,153 @@ def shell_in_firejail(cfg: LabConfig) -> int:
 # ── systemd-nspawn ────────────────────────────────────────────────────────────
 
 def _ensure_nspawn_root(cfg: LabConfig) -> Path:
-    """Return (and create if needed) the chroot directory for this lab."""
     root = Path(cfg.nspawn_root) if cfg.nspawn_root else (
         Path.home() / ".rudra" / "lab" / "labs" / cfg.name / "rootfs"
     )
     if not root.exists():
         console.print(f"[dim]Creating minimal nspawn rootfs at {root}...[/dim]")
         root.mkdir(parents=True)
-        # Bootstrap a minimal Debian rootfs if debootstrap is available
         if shutil.which("debootstrap"):
             r = subprocess.run(
                 ["sudo", "debootstrap", "--variant=minbase", "stable", str(root)],
                 timeout=300,
             )
             if r.returncode != 0:
-                console.print("[yellow]debootstrap failed — nspawn will use your system root (less isolated).[/yellow]")
-        else:
+                console.print("[yellow]debootstrap failed — falling back to minimal rootfs.[/yellow]")
+        if not shutil.which("debootstrap") or True:
             console.print("[yellow]debootstrap not found — nspawn rootfs will be minimal.[/yellow]")
-            # Create a bare-minimum structure so nspawn won't refuse to start
-            for d in ("bin", "etc", "proc", "sys", "dev", "tmp", "usr"):
+            for d in ("bin", "etc", "proc", "sys", "dev", "tmp", "usr", "lab"):
                 (root / d).mkdir(exist_ok=True)
     return root
 
 
-def _nspawn_prefix(cfg: LabConfig) -> list[str]:
+def _prepare_nspawn_src(cfg: LabConfig) -> Optional[Path]:
+    """
+    Copy the source directory into the lab's own scratch space and return
+    the scratch copy path.  The container gets this copy as a plain writable
+    --bind, so nspawn never has to fight with readonly mounts or staging dirs.
+
+    The copy lives at:
+      ~/.rudra/lab/labs/<name>/src_copy/
+
+    On subsequent runs we rsync (or re-copy) only changed files so it stays
+    fast.  Returns None if cfg has no source path.
+    """
+    if not cfg.source_path:
+        return None
+
+    src = Path(cfg.source_path)
+    if not src.is_dir():
+        return None
+
+    lab_base = Path.home() / ".rudra" / "lab" / "labs" / cfg.name
+    dst = lab_base / "src_copy"
+
+    if dst.exists():
+        # Fast update: rsync if available, else full re-copy
+        if shutil.which("rsync"):
+            subprocess.run(
+                ["rsync", "-a", "--delete", f"{src}/", f"{dst}/"],
+                capture_output=True,
+            )
+        else:
+            shutil.rmtree(dst)
+            shutil.copytree(src, dst, symlinks=True)
+    else:
+        console.print(f"[dim]Copying source into lab scratch...[/dim]")
+        shutil.copytree(src, dst, symlinks=True)
+
+    # Make the scratch copy world-writable so that nspawn's user namespace
+    # UID remapping doesn't block writes.  Inside the container the process
+    # runs as a remapped UID that doesn't match the host owner, so without
+    # this every write (e.g. expo writing .expo/dev/logs/) gets EACCES.
+    subprocess.run(["chmod", "-R", "a+rwX", str(dst)], capture_output=True)
+
+    return dst
+
+
+def _nspawn_prefix(cfg: LabConfig, src_copy: Optional[Path]) -> list[str]:
     root = _ensure_nspawn_root(cfg)
+
     args = ["sudo", "systemd-nspawn"]
     args += [f"--directory={root}"]
     args += ["--private-users=pick"]
     args += ["--private-network"] if cfg.network_isolated else []
-    args += ["--read-only"] if not cfg.writable_mounts else []
 
-    for m in cfg.readonly_mounts:
-        args += [f"--bind-ro={m}"]
+    # Bind host system tools read-only for minimal rootfs
+    bin_in_root = root / "bin"
+    if bin_in_root.exists() and not any(bin_in_root.iterdir()):
+        for d in ("/bin", "/usr", "/lib", "/sbin", "/lib64"):
+            if Path(d).exists():
+                args += [f"--bind-ro={d}"]
+
+    # Mount the writable scratch copy at /lab/src.
+    # This is a plain --bind of a normal host directory — no readonly mounts,
+    # no overlayfs, no staging mkdir conflicts. nspawn just binds the dir.
+    if src_copy:
+        mp = root / "lab" / "src"
+        mp.mkdir(parents=True, exist_ok=True)
+        args += [f"--bind={src_copy}:/lab/src"]
+        args += ["--chdir=/lab/src"]
+
+    # Any extra writable mounts
     for m in cfg.writable_mounts:
+        host, _, cont = m.partition(":")
+        cont = cont or host
+        (root / cont.lstrip("/")).mkdir(parents=True, exist_ok=True)
         args += [f"--bind={m}"]
+
+    # Inject env vars
+    for k, v in (cfg.env_vars or {}).items():
+        args += [f"--setenv={k}={v}"]
 
     return args
 
 
 def run_in_nspawn(cfg: LabConfig, cmd: str, capture_output: bool = False) -> tuple[int, str]:
-    prefix = _nspawn_prefix(cfg)
+    src_copy = _prepare_nspawn_src(cfg)
+    prefix = _nspawn_prefix(cfg, src_copy)
     full_cmd = prefix + ["/bin/sh", "-c", cmd]
+    timeout = getattr(cfg, "timeout", None) or None  # None = no timeout
 
-    env = {k: v for k, v in (cfg.env_vars or {}).items()}
     if capture_output:
+        # Stream output to terminal in real time AND collect it for the log.
+        import threading
+        lines: list[str] = []
+
+        proc = subprocess.Popen(
+            full_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        def _stream():
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                lines.append(line)
+
+        t = threading.Thread(target=_stream, daemon=True)
+        t.start()
         try:
-            r = subprocess.run(full_cmd, capture_output=True, text=True,
-                               env={**os.environ, **env}, timeout=300)
-            out = (r.stdout + r.stderr).strip()
-            for line in out.splitlines():
-                console.print(f"[dim]{line}[/dim]")
-            return r.returncode, out
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            t.join(timeout=2)
+            return -1, "".join(lines)
+        t.join(timeout=2)
+        return proc.returncode, "".join(lines)
+    else:
+        try:
+            result = subprocess.run(full_cmd, timeout=timeout)
+            return result.returncode, ""
         except subprocess.TimeoutExpired:
             return -1, "(timed out)"
-    else:
-        result = subprocess.run(full_cmd, env={**os.environ, **env})
-        return result.returncode, ""
 
 
 def shell_in_nspawn(cfg: LabConfig) -> int:
-    prefix = _nspawn_prefix(cfg)
+    src_copy = _prepare_nspawn_src(cfg)
+    prefix = _nspawn_prefix(cfg, src_copy)
     console.print(f"[bold cyan]Dropping into nspawn shell [{cfg.name}][/bold cyan]")
     console.print(f"[dim]Network isolated: {cfg.network_isolated}[/dim]")
     console.print(f"[dim]Type 'exit' to leave the lab.[/dim]\n")
@@ -187,19 +255,13 @@ def shell_in_nspawn(cfg: LabConfig) -> int:
 def run_in_env(cfg: LabConfig, cmd: str,
                venv_path: Optional[Path] = None,
                capture_output: bool = False) -> tuple[int, str]:
-    """Run in an isolated env — just env vars + optional venv, no namespace."""
     env = {**os.environ}
-
-    # Strip dangerous env vars
     for dangerous in ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH"):
         env.pop(dangerous, None)
-
     env.update(cfg.env_vars or {})
-
     if venv_path and venv_path.exists():
         env["VIRTUAL_ENV"] = str(venv_path)
         env["PATH"] = f"{venv_path/'bin'}:{env.get('PATH','')}"
-
     if capture_output:
         try:
             r = subprocess.run(

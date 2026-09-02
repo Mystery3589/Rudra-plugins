@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rudra - Execution History</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .history-viewport {
+      padding: 2rem;
+      flex: 1;
+      overflow-y: auto;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .history-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      box-shadow: var(--glow-card);
+      overflow: hidden;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .history-table th {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.85rem 1rem;
+      text-align: left;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .history-table td {
+      padding: 0.85rem 1rem;
+      font-size: 0.82rem;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+    }
+    .history-table tr:hover {
+      background: var(--bg-card-hover);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+    .status-ok {
+      background: rgba(0, 255, 159, 0.12);
+      color: var(--neon-green);
+      border: 1px solid rgba(0, 255, 159, 0.3);
+    }
+    .status-err {
+      background: rgba(244, 63, 94, 0.12);
+      color: var(--neon-rose);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+  </style>
+</head>
+<body class="theme-cyberpunk">
+
+  <header>
+    <div class="brand-section">
+      <a href="/" class="brand-logo">
+        <div class="brand-icon">🔱</div>
+        <span>RUDRA</span>
+      </a>
+      <span class="version-pill">HISTORY LOG</span>
+    </div>
+
+    <div class="header-actions">
+      <a href="/" class="header-btn">
+        <span>◀</span> Back to Terminal
+      </a>
+      <button class="header-btn" style="border-color: rgba(244, 63, 94, 0.3); color: var(--neon-rose);" onclick="clearAllHistory()">
+        <span>🗑</span> Clear Log
+      </button>
+    </div>
+  </header>
+
+  <div class="history-viewport">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.25rem;">
+      <div>
+        <h1 style="font-size: 1.35rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.25rem;">Command Execution Journal</h1>
+        <p style="font-size: 0.8rem; color: var(--text-muted);">Auto-retention policy active: Retains max 100 recent executions within the last 7 days.</p>
+      </div>
+      <div class="search-input-wrapper" style="width: 280px;">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="history-search" class="sidebar-search-input" placeholder="Filter history logs..." oninput="filterHistory()">
+      </div>
+    </div>
+
+    <div class="history-card">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Command</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="history-rows">
+          <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading journal...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allHistory = [];
+
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/history');
+        allHistory = await res.json();
+        renderRows(allHistory);
+      } catch (err) {
+        document.getElementById('history-rows').innerHTML = `<tr><td colspan="5" style="color:var(--neon-rose); text-align:center;">Error loading history: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderRows(items) {
+      const tbody = document.getElementById('history-rows');
+      tbody.innerHTML = '';
+      if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">No execution history recorded yet.</td></tr>';
+        return;
+      }
+
+      items.forEach(item => {
+        const tr = document.createElement('tr');
+        const isSuccess = item.exit_code === 0;
+        tr.innerHTML = `
+          <td style="color: var(--text-muted);">${item.timestamp}</td>
+          <td style="color: var(--neon-cyan); font-weight: 600;">$ ${item.command}</td>
+          <td style="color: var(--text-secondary);">${item.duration_sec}s</td>
+          <td>
+            <span class="status-badge ${isSuccess ? 'status-ok' : 'status-err'}">
+              ${isSuccess ? '● EXIT 0' : `✖ EXIT ${item.exit_code}`}
+            </span>
+          </td>
+          <td>
+            <button class="header-btn" style="padding: 0.25rem 0.6rem; font-size: 0.72rem;" onclick="copyCmd('${item.command}')">📋 Copy</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function filterHistory() {
+      const q = document.getElementById('history-search').value.toLowerCase();
+      const filtered = allHistory.filter(h => h.command.toLowerCase().includes(q) || h.timestamp.includes(q));
+      renderRows(filtered);
+    }
+
+    function copyCmd(cmd) {
+      navigator.clipboard.writeText(cmd);
+      alert(`Copied to clipboard:\n${cmd}`);
+    }
+
+    async function clearAllHistory() {
+      if (!confirm('Purge all execution history?')) return;
+      try {
+        await fetch('/api/history', { method: 'DELETE' });
+        loadHistory();
+      } catch (err) {
+        alert('Failed to clear history');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadHistory);
+  </script>
+</body>
+</html>

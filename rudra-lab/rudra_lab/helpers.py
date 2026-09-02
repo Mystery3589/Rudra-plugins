@@ -154,6 +154,7 @@ class LabConfig:
     last_run: str                        = ""
     run_count: int                       = 0
     status: str                          = "created"   # created|running|stopped|destroyed
+    timeout: int                         = 0           # 0 = no timeout
 
 
 def lab_config_path(name: str) -> Path:
@@ -287,3 +288,59 @@ def run_capture(cmd: list[str], description: str | None = None,
         return -1, "".join(lines) + "\n(timed out)"
     except Exception as e:
         return -1, str(e)
+
+
+def cleanup_expired_labs_and_logs(max_age_days: int = 7, clean_all_stopped: bool = False) -> tuple[int, int]:
+    """Clean up dead labs, orphaned snapshots, and old run logs."""
+    import time
+    now = time.time()
+    cutoff = now - (max_age_days * 86400)
+    cleaned_labs = 0
+    cleaned_logs = 0
+
+    # 1. Clean old logs
+    if LOGS_DIR.exists():
+        for log_file in LOGS_DIR.glob("*"):
+            if log_file.is_file() and log_file.stat().st_mtime < cutoff:
+                try:
+                    log_file.unlink()
+                    cleaned_logs += 1
+                except Exception:
+                    pass
+
+    # 2. Clean proxy logs & orphaned snapshots in LAB_DIR
+    for f in LAB_DIR.glob("proxy_*.log"):
+        if f.is_file() and f.stat().st_mtime < cutoff:
+            try:
+                f.unlink()
+                cleaned_logs += 1
+            except Exception:
+                pass
+
+    snap_dir = LAB_DIR / "snapshots"
+    if snap_dir.exists():
+        for sf in snap_dir.glob("*.json"):
+            if sf.is_file() and sf.stat().st_mtime < cutoff:
+                try:
+                    sf.unlink()
+                except Exception:
+                    pass
+
+    # 3. Clean dead / expired labs
+    for lab_name in list_labs():
+        cfg = load_lab(lab_name)
+        if cfg:
+            is_old = False
+            try:
+                created_dt = datetime.fromisoformat(cfg.created_at)
+                is_old = (now - created_dt.timestamp()) > (max_age_days * 86400)
+            except Exception:
+                pass
+
+            if is_old or (clean_all_stopped and cfg.status in ("stopped", "destroyed")):
+                _d = lab_dir(lab_name)
+                if _d.exists():
+                    shutil.rmtree(_d, ignore_errors=True)
+                cleaned_labs += 1
+
+    return cleaned_labs, cleaned_logs

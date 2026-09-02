@@ -22,6 +22,23 @@ from rudra_lab.helpers import (
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
+def _hint_exit_code(exit_code: int, tier: "Tier") -> None:
+    """Print a human-readable diagnostic when a container exits non-zero."""
+    if exit_code == 0:
+        return
+    if tier == Tier.NSPAWN and exit_code == 7:
+        console.print(
+            "[yellow]Hint: nspawn exit 7 usually means a permission error inside the "
+            "container (e.g. a tool tried to write into the read-only source mount). "
+            "Check for EACCES in the output above. rudra-lab's bootstrap should have "
+            "added writable scratch mounts automatically — if one is missing, file an "
+            "issue or add it to setup_node / the relevant setup_* function in "
+            "env_setup.py.[/yellow]"
+        )
+    elif exit_code == 1:
+        console.print("[dim]Hint: exit 1 is a generic failure — check the output above for details.[/dim]")
+
+
 TIER_COLORS = {
     "docker":   "green",
     "nspawn":   "cyan",
@@ -108,7 +125,7 @@ def create(
         docker_image     = image,
         env_vars         = env_dict,
         port_bindings    = port or [],
-        readonly_mounts  = [f"{src_path}:/lab/src:ro"] if src_path else [],
+        readonly_mounts  = [f"{src_path}:/lab/src"] if src_path else [],
         status           = "created",
     )
 
@@ -205,6 +222,7 @@ def run(
         console.print(f"\n[bold green]✓ Exited 0.[/bold green]")
     else:
         console.print(f"\n[bold red]✗ Exited {exit_code}.[/bold red]")
+        _hint_exit_code(exit_code, Tier(cfg.tier))
 
     # Destroy if disposable
     should_destroy = destroy_after if destroy_after is not None else cfg.disposable
@@ -267,7 +285,7 @@ def isolate(
     report: Annotated[Optional[list[str]], typer.Option("--report", "-r", help="Report formats: md json html.")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="Show what would happen, don't run.")] = False,
     keep: Annotated[bool, typer.Option("--keep", help="Keep lab after run.")] = False,
-    timeout: Annotated[int, typer.Option("--timeout", help="Timeout in seconds.")] = 300,
+    timeout: Annotated[int, typer.Option("--timeout", help="Timeout in seconds (0 = no timeout).")] = 0,
 ):
     """One-shot: detect → isolate → run → analyse → report → destroy.
 
@@ -359,8 +377,9 @@ def isolate(
         name=lab_name, tier=chosen_tier.value, project_type=ptype.value,
         source_path=str(src_path), disposable=not keep,
         network_isolated=(net_mode == "no-internet"),
-        readonly_mounts=[f"{src_path}:/lab/src:ro"] if src_path.is_dir() else [],
+        readonly_mounts=[f"{src_path}:/lab/src"] if src_path.is_dir() else [],
         status="created",
+        timeout=timeout,
     )
     save_lab(cfg)
 
@@ -376,8 +395,11 @@ def isolate(
         proxy_session = start_proxy(pcfg)
         if proxy_session:
             cfg.env_vars.update(proxy_session.env_vars)
-            if chosen_tier == Tier.DOCKER:
-                cfg.network_isolated = False
+            # All tiers need host-network access so the lab process can reach
+            # the proxy at 127.0.0.1. Docker uses --network=none when isolated;
+            # unshare/firejail use --net/--net=none; nspawn uses --private-network.
+            # Setting network_isolated=False disables all of these.
+            cfg.network_isolated = False
         else:
             console.print("[yellow]Proxy failed — falling back to no-internet.[/yellow]")
             cfg.network_isolated = True
@@ -453,6 +475,7 @@ def isolate(
         console.print(f"[bold green]✓ Exited 0[/bold green]  ({duration:.1f}s)")
     else:
         console.print(f"[bold red]✗ Exited {exit_code}[/bold red]  ({duration:.1f}s)")
+        _hint_exit_code(exit_code, chosen_tier)
 
     if stdin_mode and src_path and src_path.exists():
         src_path.unlink(missing_ok=True)
@@ -759,11 +782,37 @@ def tiers():
     console.print()
 
 
+# ── cleanup & prune ───────────────────────────────────────────────────────────
+
+@app.command(name="cleanup")
+@app.command(name="prune")
+def cleanup_cmd(
+    days: Annotated[int, typer.Option("--days", "-d", help="Max retention in days for stopped labs and logs.")] = 7,
+    all_stopped: Annotated[bool, typer.Option("--all-stopped", "-a", help="Clean all stopped/destroyed labs immediately.")] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation prompt.")] = False,
+):
+    """Auto-clean expired/dead lab containers, temporary mounts, and old run logs."""
+    from rudra_lab.helpers import cleanup_expired_labs_and_logs
+    console.print(Panel.fit(f"[bold cyan]🧹 Rudra Lab Housekeeping & Pruning[/bold cyan]\n[dim]Purging expired lab workspaces and run logs older than {days} days...[/dim]", border_style="cyan"))
+
+    if not force and all_stopped:
+        if not typer.confirm("Purge ALL stopped labs immediately?"):
+            console.print("[yellow]Cleanup aborted.[/yellow]")
+            return
+
+    cleaned_labs, cleaned_logs = cleanup_expired_labs_and_logs(max_age_days=days, clean_all_stopped=all_stopped)
+    console.print(f"[bold green]✓ Cleanup complete! Purged {cleaned_labs} lab workspace(s) and {cleaned_logs} log file(s).[/bold green]")
+
+
 # ── internal helpers ──────────────────────────────────────────────────────────
 
 def _destroy_lab_data(name: str) -> None:
-    """Remove the lab directory from disk."""
+    """Remove the lab directory and any snapshots from disk."""
+    import shutil as _shutil
     d = lab_dir(name)
     if d.exists():
-        import shutil as _shutil
         _shutil.rmtree(d, ignore_errors=True)
+    # Remove snapshots for this lab
+    from rudra_lab.snapshot import SNAP_DIR
+    for snap in SNAP_DIR.glob(f"{name}_*.json"):
+        snap.unlink(missing_ok=True)
