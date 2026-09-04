@@ -11,6 +11,16 @@
       "license": "MIT",
       "commands": ["hunt", "bounty"]
     },
+    "dotfiles": {
+      "name": "rudra-dotfiles",
+      "version": "0.1.0",
+      "description": "Multi-profile dotfiles manager — switch between multiple configs for zsh, nvim, tmux with automatic live backup",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["dotfiles", "dot"]
+    },
     "git": {
       "name": "rudra-git",
       "version": "0.1.0",
@@ -60,6 +70,16 @@
       "homepage": "https://github.com/Mystery3589/rudra-plugins",
       "license": "MIT",
       "commands": ["vault"]
+    },
+    "share": {
+      "name": "rudra-share",
+      "version": "0.1.0",
+      "description": "Instant zero-config public tunneling and port sharing — expose local dev servers to the internet with QR codes",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["share", "tunnel"]
     },
     "web": {
       "name": "rudra-web",

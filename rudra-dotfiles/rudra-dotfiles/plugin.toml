@@ -1,0 +1,12 @@
+[plugin]
+name        = "rudra-dotfiles"
+version     = "0.1.0"
+description = "Multi-profile dotfiles manager — switch between multiple configs for zsh, nvim, tmux with automatic live backup"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/rudra-plugins"
+license     = "MIT"
+commands    = ["dotfiles", "dot"]
+
+[dependencies]
+python = []
