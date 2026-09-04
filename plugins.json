@@ -1,6 +1,16 @@
 {
   "_comment": "Official rudra plugin index. Hosted at https://github.com/Mystery3589/rudra-plugins.",
   "plugins": {
+    "bounty": {
+      "name": "rudra-bounty",
+      "version": "0.1.0",
+      "description": "Advanced bug bounty hunter — scope management, passive surface discovery, posture audit, finding tracker & reports",
+      "author": "Mystery3589",
+      "rudra_min": "0.1.0",
+      "homepage": "https://github.com/Mystery3589/rudra-plugins",
+      "license": "MIT",
+      "commands": ["hunt", "bounty"]
+    },
     "git": {
       "name": "rudra-git",
       "version": "0.1.0",

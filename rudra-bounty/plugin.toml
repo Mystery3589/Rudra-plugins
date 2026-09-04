@@ -1,0 +1,13 @@
+[plugin]
+name        = "rudra-bounty"
+version     = "0.1.0"
+description = "Advanced bug bounty hunter — scope management, passive surface discovery, security posture auditing, finding tracker, and platform-ready reports"
+author      = "Mystery3589"
+rudra_min   = "0.1.0"
+homepage    = "https://github.com/Mystery3589/Rudra-plugins"
+license     = "MIT"
+
+commands    = ["hunt", "bounty"]
+
+[dependencies]
+python = ["requests"]
