@@ -47,6 +47,16 @@ app.add_typer(note_app, name="note")
 app.add_typer(secret_app, name="secret")
 
 
+def _t():
+    try:
+        from rudra.theme import get_current_theme
+        return get_current_theme()
+    except Exception:
+        from rudra.theme import ThemeConfig
+        return ThemeConfig()
+
+
+
 def _require_unlocked_key() -> bytes:
     key = get_cached_session_key()
     if key:
@@ -83,60 +93,62 @@ def vault_default(ctx: typer.Context):
 @app.command(name="init")
 def init_cmd():
     """Initialize a new encrypted secret safe with a master password."""
+    th = _t()
     if is_initialized():
-        console.print("[yellow]Vault is already initialized.[/yellow]")
-        console.print("To view stored assets, run: [bold cyan]rudra vault list[/bold cyan]")
+        console.print(f"[{th.warning}]Vault is already initialized.[/{th.warning}]")
+        console.print(f"To view stored assets, run: [bold {th.primary}]rudra vault list[/bold {th.primary}]")
         return
 
     console.print(
         Panel.fit(
-            "[bold cyan]🔐 Rudra Secret Safe Initialization[/bold cyan]\n\n"
+            f"[bold {th.primary}]{th.prompt_char} Rudra Secret Safe Initialization[/bold {th.primary}]\n\n"
             "This will establish an AES-256-GCM encrypted locker for all your confidential\n"
             "passwords, API keys, documents, notes, photos, and videos.",
-            border_style="cyan",
+            border_style=th.panel_border,
         )
     )
 
     try:
         p1 = getpass.getpass("Choose a strong Master Password: ")
         if not p1 or len(p1) < 6:
-            console.print("[bold red]✖ Password must be at least 6 characters.[/bold red]")
+            console.print(f"[bold {th.error}]✖ Password must be at least 6 characters.[/bold {th.error}]")
             raise typer.Exit(code=1)
 
         p2 = getpass.getpass("Confirm Master Password: ")
         if p1 != p2:
-            console.print("[bold red]✖ Passwords do not match.[/bold red]")
+            console.print(f"[bold {th.error}]✖ Passwords do not match.[/bold {th.error}]")
             raise typer.Exit(code=1)
 
         init_credentials(p1)
-        console.print("\n[bold green]✓ Vault initialized successfully![/bold green]")
-        console.print("[dim]Secrets and blobs will be encrypted at ~/.rudra/vault/[/dim]")
+        console.print(f"\n[bold {th.success}]✓ Vault initialized successfully![/bold {th.success}]")
+        console.print(f"[{th.dim}]Secrets and blobs will be encrypted at ~/.rudra/vault/[/{th.dim}]")
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[dim]Initialization cancelled.[/dim]")
+        console.print(f"\n[{th.dim}]Initialization cancelled.[/{th.dim}]")
 
 
 @app.command(name="status")
 def status_cmd():
     """Show safe status, lock state, and encrypted storage statistics."""
+    th = _t()
     stats = get_vault_stats()
-    init_str = "[bold green]Initialized[/bold green]" if stats["initialized"] else "[bold yellow]Not Initialized[/bold yellow]"
-    lock_str = "[bold green]Unlocked (Session Active)[/bold green]" if stats["unlocked"] else "[bold red]Locked[/bold red]"
+    init_str = f"[bold {th.success}]Initialized[/bold {th.success}]" if stats["initialized"] else f"[bold {th.warning}]Not Initialized[/bold {th.warning}]"
+    lock_str = f"[bold {th.success}]Unlocked (Session Active)[/bold {th.success}]" if stats["unlocked"] else f"[bold {th.error}]Locked[/bold {th.error}]"
 
     table = Table(show_header=False, box=None)
-    table.add_row("[bold]Safe Status:[/bold]", init_str)
-    table.add_row("[bold]Lock State:[/bold]", lock_str)
-    table.add_row("[bold]Total Items:[/bold]", str(stats["total_items"]))
-    table.add_row("[bold]Encrypted Storage:[/bold]", f"{stats['storage_mb']} MB ({stats['storage_bytes']} bytes)")
+    table.add_row(f"[bold {th.primary}]Safe Status:[/bold {th.primary}]", init_str)
+    table.add_row(f"[bold {th.primary}]Lock State:[/bold {th.primary}]", lock_str)
+    table.add_row(f"[bold {th.primary}]Total Items:[/bold {th.primary}]", str(stats["total_items"]))
+    table.add_row(f"[bold {th.primary}]Encrypted Storage:[/bold {th.primary}]", f"{stats['storage_mb']} MB ({stats['storage_bytes']} bytes)")
 
     console.print(
         Panel(
             table,
-            title="🔐 Rudra Secret Safe Status",
-            border_style="cyan" if stats["unlocked"] else "dim",
+            title=f"[{th.primary}]{th.prompt_char} Rudra Secret Safe Status[/{th.primary}]",
+            border_style=th.panel_border,
         )
     )
     if not stats["initialized"]:
-        console.print("[dim]Run [bold cyan]rudra vault init[/bold cyan] to initialize your safe.[/dim]")
+        console.print(f"[{th.dim}]Run [bold {th.primary}]rudra vault init[/bold {th.primary}] to initialize your safe.[/{th.dim}]")
 
 
 @app.command(name="unlock")
@@ -220,19 +232,20 @@ def note_read_cmd(
 ):
     """Decrypt and read a confidential note."""
     key = _require_unlocked_key()
+    th = _t()
     try:
         item, data = get_item_data(name_or_id, key=key)
         text = data.decode("utf-8", errors="replace")
         console.print(
             Panel(
                 text,
-                title=f"📝 {item['name']}",
+                title=f"[{th.primary}]📝 {item['name']}[/{th.primary}]",
                 subtitle=f"Created: {item['created_at']}",
-                border_style="cyan",
+                border_style=th.panel_border,
             )
         )
     except Exception as e:
-        console.print(f"[bold red]✖ Failed to read note: {e}[/bold red]")
+        console.print(f"[bold {th.error}]✖ Failed to read note: {e}[/bold {th.error}]")
 
 
 # ── Secrets & Passwords ─────────────────────────────────────────────────────
@@ -299,18 +312,23 @@ def list_cmd(
 ):
     """List all encrypted assets stored in your safe."""
     key = _require_unlocked_key()
+    th = _t()
     try:
         items = list_items(filter_type=filter_type, key=key)
         if not items:
-            console.print("[yellow]Safe is currently empty.[/yellow] Use [bold cyan]rudra vault put[/bold cyan], [bold cyan]rudra vault note create[/bold cyan], or [bold cyan]rudra vault secret set[/bold cyan] to add items.")
+            console.print(f"[{th.warning}]Safe is currently empty.[/{th.warning}] Use [bold {th.primary}]rudra vault put[/bold {th.primary}], [bold {th.primary}]rudra vault note create[/bold {th.primary}], or [bold {th.primary}]rudra vault secret set[/bold {th.primary}] to add items.")
             return
 
-        table = Table(title=f"🔐 Rudra Secret Safe ({len(items)} Items)", border_style="cyan")
-        table.add_column("Type", style="bold")
-        table.add_column("Name / Key", style="cyan")
-        table.add_column("MIME / Format", style="dim")
-        table.add_column("Size", justify="right", style="green")
-        table.add_column("Created", style="dim")
+        table = Table(
+            title=f"[{th.table_header}]{th.prompt_char} Rudra Secret Safe ({len(items)} Items)[/{th.table_header}]",
+            border_style=th.panel_border,
+            show_lines=True,
+        )
+        table.add_column("Type", style=f"bold {th.primary}")
+        table.add_column("Name / Key", style=f"bold {th.primary}")
+        table.add_column("MIME / Format", style=th.dim)
+        table.add_column("Size", justify="right", style=th.success)
+        table.add_column("Created", style=th.dim)
 
         type_icons = {
             "media": "🖼️ media",
@@ -332,7 +350,7 @@ def list_cmd(
 
         console.print(table)
     except Exception as e:
-        console.print(f"[bold red]✖ Failed to list vault items: {e}[/bold red]")
+        console.print(f"[bold {th.error}]✖ Failed to list vault items: {e}[/bold {th.error}]")
 
 
 @app.command(name="rm")
