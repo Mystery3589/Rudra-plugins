@@ -57,6 +57,17 @@ def _t():
 
 
 
+from rudra_vault.drive import (
+    DEFAULT_DRIVE_DIR,
+    get_drive_status,
+    is_drive_mounted,
+    mount_drive,
+    open_drive_in_file_manager,
+    sync_drive_to_vault,
+    unmount_drive,
+)
+
+
 def _require_unlocked_key() -> bytes:
     key = get_cached_session_key()
     if key:
@@ -83,9 +94,15 @@ def _require_unlocked_key() -> bytes:
 
 
 @app.callback(invoke_without_command=True)
-def vault_default(ctx: typer.Context):
+def vault_default(
+    ctx: typer.Context,
+    basic: Annotated[bool, typer.Option("--basic", "-b", help="Unlock and mount ~/Vault daily drive.")] = False,
+):
     if ctx.invoked_subcommand is None:
-        status_cmd()
+        if basic:
+            unlock_cmd(basic=True)
+        else:
+            status_cmd()
 
 
 # ── Initialization & Session ────────────────────────────────────────────────
@@ -128,15 +145,19 @@ def init_cmd():
 
 @app.command(name="status")
 def status_cmd():
-    """Show safe status, lock state, and encrypted storage statistics."""
+    """Show safe status, lock state, daily drive status, and encrypted storage statistics."""
     th = _t()
     stats = get_vault_stats()
+    drive = get_drive_status()
+
     init_str = f"[bold {th.success}]Initialized[/bold {th.success}]" if stats["initialized"] else f"[bold {th.warning}]Not Initialized[/bold {th.warning}]"
     lock_str = f"[bold {th.success}]Unlocked (Session Active)[/bold {th.success}]" if stats["unlocked"] else f"[bold {th.error}]Locked[/bold {th.error}]"
+    drive_str = f"[bold {th.success}]Active ({drive['path']} - {drive['items_in_drive']} items)[/bold {th.success}]" if drive["mounted"] else f"[{th.dim}]Invisible (Locked)[/{th.dim}]"
 
     table = Table(show_header=False, box=None)
     table.add_row(f"[bold {th.primary}]Safe Status:[/bold {th.primary}]", init_str)
     table.add_row(f"[bold {th.primary}]Lock State:[/bold {th.primary}]", lock_str)
+    table.add_row(f"[bold {th.primary}]Daily Drive:[/bold {th.primary}]", drive_str)
     table.add_row(f"[bold {th.primary}]Total Items:[/bold {th.primary}]", str(stats["total_items"]))
     table.add_row(f"[bold {th.primary}]Encrypted Storage:[/bold {th.primary}]", f"{stats['storage_mb']} MB ({stats['storage_bytes']} bytes)")
 
@@ -152,16 +173,78 @@ def status_cmd():
 
 
 @app.command(name="unlock")
-def unlock_cmd():
-    """Unlock the vault for the current session."""
-    _require_unlocked_key()
+def unlock_cmd(
+    basic: Annotated[bool, typer.Option("--basic", "-b", help="Mount and decrypt files into ~/Vault for daily drive.")] = False,
+    open_folder: Annotated[bool, typer.Option("--open", "-o", help="Open ~/Vault in your desktop file manager.")] = False,
+):
+    """Unlock the vault for the current session. Use --basic for daily drive folder."""
+    key = _require_unlocked_key()
+    th = _t()
+    if basic:
+        mount_res = mount_drive(key)
+        console.print(
+            Panel.fit(
+                f"[bold {th.success}]✓ Daily Drive Ready at: {mount_res['path']}[/bold {th.success}]\n"
+                f"[{th.primary}]{mount_res['count']} item(s) decrypted for daily use.[/{th.primary}]\n\n"
+                f"[{th.dim}]• Open, edit, or drag & drop files into {mount_res['path']} directly.\n"
+                f"• Run 'rudra vault sync' anytime to save changes.\n"
+                f"• Running 'rudra vault lock' will re-encrypt all files and wipe {mount_res['path']} clean.[/{th.dim}]",
+                title=f"[{th.primary}]{th.prompt_char} Rudra Vault Daily Drive[/{th.primary}]",
+                border_style=th.panel_border,
+            )
+        )
+        if open_folder:
+            open_drive_in_file_manager()
 
 
 @app.command(name="lock")
 def lock_cmd():
-    """Lock the vault immediately and wipe decrypted session keys from RAM."""
+    """Lock the vault immediately, sync ~/Vault changes, and wipe decrypted files."""
+    th = _t()
+    key = get_cached_session_key()
+    drive_unmounted = False
+    sync_info = None
+
+    if is_drive_mounted():
+        res = unmount_drive(key=key, wipe=True)
+        drive_unmounted = True
+        sync_info = res.get("sync", {})
+
     clear_session_key()
-    console.print("[bold green]✓ Vault is now locked.[/bold green]")
+    if drive_unmounted and sync_info:
+        console.print(
+            f"[bold {th.success}]✓ Vault locked & Daily Drive (~/Vault) wiped clean.[/{th.success}]\n"
+            f"[{th.dim}]Synced changes: {sync_info.get('added', 0)} added, {sync_info.get('updated', 0)} updated, {sync_info.get('deleted', 0)} deleted.[/{th.dim}]"
+        )
+    else:
+        console.print(f"[bold {th.success}]✓ Vault is now locked.[/{th.success}]")
+
+
+@app.command(name="sync")
+def sync_cmd():
+    """Sync changes from ~/Vault back to the encrypted safe without locking."""
+    key = _require_unlocked_key()
+    th = _t()
+    if not is_drive_mounted():
+        console.print(f"[{th.warning}]Daily drive is not active. Run [bold {th.primary}]rudra vault unlock --basic[/bold {th.primary}] first.[/{th.warning}]")
+        return
+    res = sync_drive_to_vault(key)
+    console.print(f"[bold {th.success}]✓ Daily Drive synchronized with safe.[/{th.success}]")
+    console.print(f"[{th.dim}]Added: {res['added']} | Updated: {res['updated']} | Deleted: {res['deleted']}[/{th.dim}]")
+
+
+@app.command(name="open")
+def open_cmd():
+    """Open ~/Vault in your desktop file manager."""
+    th = _t()
+    if not is_drive_mounted():
+        console.print(f"[{th.warning}]Daily drive is not active. Run [bold {th.primary}]rudra vault unlock --basic[/bold {th.primary}] first.[/{th.warning}]")
+        return
+    if open_drive_in_file_manager():
+        console.print(f"[bold {th.success}]✓ Opened ~/Vault in file manager.[/{th.success}]")
+    else:
+        console.print(f"[{th.warning}]Could not launch file manager. Path: ~/Vault[/{th.warning}]")
+
 
 
 # ── Files & Media (Images, Videos, Documents) ───────────────────────────────
