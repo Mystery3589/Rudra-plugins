@@ -68,6 +68,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white transition flex items-center space-x-2 shrink-0">
         <i class="fa-solid fa-user-secret"></i><span>OSINT Dossiers</span>
       </button>
+      <a href="/terminal" target="_blank" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 transition flex items-center space-x-2 shrink-0">
+        <i class="fa-solid fa-terminal"></i><span>Terminal</span><i class="fa-solid fa-arrow-up-right-from-square text-xs opacity-70"></i>
+      </a>
     </div>
 
     <!-- ── TAB: OVERVIEW ─────────────────────────────────────────── -->

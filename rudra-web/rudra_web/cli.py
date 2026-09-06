@@ -164,3 +164,23 @@ def status_cmd():
         console.print(f"[bold green]● Rudra Web is running[/bold green] (PID [cyan]{pid}[/cyan])")
     else:
         console.print("[dim]○ Rudra Web is stopped.[/dim]")
+
+
+@cli_app.command(name="terminal")
+@cli_app.command(name="shell")
+def terminal_cmd(
+    port: Annotated[int, typer.Option("--port", "-p", help="Port of the running web interface.")] = 7070,
+):
+    """Launch the interactive xterm.js Rudra Web Terminal in default browser."""
+    terminal_url = f"http://localhost:{port}/terminal"
+    pid = _read_pid()
+
+    if not pid:
+        console.print(f"[bold cyan]⚡ Starting Rudra Web server on port {port}...[/bold cyan]")
+        serve_cmd(port=port, no_browser=True)
+
+    console.print(f"[bold green]✓ Opening Rudra Web Terminal:[/bold green] [underline cyan]{terminal_url}[/underline cyan]")
+    try:
+        webbrowser.open(terminal_url)
+    except Exception:
+        pass
